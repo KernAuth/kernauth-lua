@@ -36,6 +36,9 @@ function KernAuth:call(mode, license_key, installation_id, ok_message)
   end
   self.success = true
   self.message = ok_message
+  local features = result.features
+  if type(features) == "string" then features = parse_json(features) end
+  result.features = encode_json(features)
   self.entitlement = result
   return true
 end
@@ -373,10 +376,8 @@ if arg and arg[0] then
   local app = KernAuth.new(API, APP_ID, KEY_ID, PUBLIC_KEY)
   if not app:validate(license_key(), installation_id()) then error(app.message) end
   local ent = app.entitlement
-  local features = ent.features
-  if type(features) == "string" then features = parse_json(features) end
   io.write("Status: ", tostring(ent.status), "\n")
-  io.write("Features: ", encode_json(features), "\n")
+  io.write("Features: ", ent.features, "\n")
   io.write("License: ", tostring(ent.license_id), "\n")
   io.write("Check expires: ", tostring(ent.expires_at), "\n")
   end
