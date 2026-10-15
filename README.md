@@ -1,6 +1,6 @@
 # KernAuth Lua example
 
-Paste the public app ID, key ID, and public key from Developers into `kernauth.lua`. Lua 5.4. The standard library has no HTTPS client, so this file uses curl for the request and the openssl command for the signature.
+Paste the public app ID and public key from Developers into `kernauth.lua`. Lua 5.4. The standard library has no HTTPS client, so this file uses curl for the request and the openssl command for the signature.
 
 ## Instance
 
@@ -8,7 +8,6 @@ Paste the public app ID, key ID, and public key from Developers into `kernauth.l
 local app = KernAuth.new(
   "https://api.kernauth.com",
   "__PUBLIC_APP_ID__",
-  "__KEY_ID__",
   "__PUBLIC_KEY__"
 )
 ```

@@ -3,7 +3,6 @@
 
 local API = "https://api.kernauth.com"
 local APP_ID = "__PUBLIC_APP_ID__"
-local KEY_ID = "__KEY_ID__"
 local PUBLIC_KEY = "__PUBLIC_KEY__"
 local FIELDS = {
   "protocol_version", "entitlement_id", "application_id", "license_id", "status",
@@ -15,9 +14,9 @@ local object_mt = {}
 local KernAuth = {}
 KernAuth.__index = KernAuth
 
-function KernAuth.new(api, app_id, key_id, public_key)
+function KernAuth.new(api, app_id, public_key)
   return setmetatable({
-    api = api or API, app_id = app_id or APP_ID, key_id = key_id or KEY_ID,
+    api = api or API, app_id = app_id or APP_ID,
     public_key = public_key or PUBLIC_KEY, success = false, message = "", entitlement = nil,
   }, KernAuth)
 end
@@ -27,7 +26,7 @@ function KernAuth:validate(license_key, installation_id)
 end
 
 function KernAuth:call(mode, license_key, installation_id, ok_message)
-  local ok, result = pcall(request, mode, license_key, installation_id, self.api, self.app_id, self.key_id, self.public_key)
+  local ok, result = pcall(request, mode, license_key, installation_id, self.api, self.app_id, self.public_key)
   if not ok then
     self.success = false
     self.message = tostring(result)
@@ -265,13 +264,12 @@ local function run(command)
   return ok == true or ok == 0 or code == 0
 end
 
-function verify_grant(grant, nonce, app_id, key_id, public_key, now_ms)
+function verify_grant(grant, nonce, app_id, public_key, now_ms)
   app_id = app_id or APP_ID
-  key_id = key_id or KEY_ID
   public_key = public_key or PUBLIC_KEY
   local ent = grant.entitlement
   if ent.protocol_version ~= 1 or ent.nonce ~= nonce or ent.application_id ~= app_id or
-      ent.key_id ~= key_id or ent.status ~= "active" then return false end
+      ent.status ~= "active" then return false end
   now_ms = now_ms or (os.time() * 1000)
   local expiry_ms = instant_ms(ent.expires_at)
   if not expiry_ms or expiry_ms <= now_ms then return false end
@@ -297,7 +295,7 @@ function verify_grant(grant, nonce, app_id, key_id, public_key, now_ms)
   return verified
 end
 
-function request(mode, license_key, installation_id, api, app_id, key_id, public_key)
+function request(mode, license_key, installation_id, api, app_id, public_key)
   local random = assert(io.open("/dev/urandom", "rb"))
   local nonce_raw = random:read(24)
   random:close()
@@ -328,7 +326,7 @@ function request(mode, license_key, installation_id, api, app_id, key_id, public
   os.remove(resp)
   if status ~= "200" and status ~= "201" then error(mode .. " failed (" .. status .. ")") end
   local grant = parse_json(raw)
-  if not verify_grant(grant, nonce, app_id, key_id, public_key, nil) then error("Invalid or expired signed entitlement") end
+  if not verify_grant(grant, nonce, app_id, public_key, nil) then error("Invalid or expired signed entitlement") end
   return grant.entitlement or grant["entitlement"]
 end
 
@@ -383,7 +381,7 @@ end
 if arg and arg[0] then
   local invoked = arg[0]:gsub("\\", "/")
   if invoked == "kernauth.lua" or invoked:match("/kernauth%.lua$") then
-  local app = KernAuth.new(API, APP_ID, KEY_ID, PUBLIC_KEY)
+  local app = KernAuth.new(API, APP_ID, PUBLIC_KEY)
   if not app:validate(license_key(), installation_id()) then error(app.message) end
   local ent = app.entitlement
   io.write("Status: ", tostring(ent.status), "\n")

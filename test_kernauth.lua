@@ -25,15 +25,14 @@ for _, vector in ipairs(fixture.vectors) do
       os.exit(1)
     end
   end
-  check("ok", verify_grant(grant, ent.nonce, ent.application_id, ent.key_id, vector.public_key, now), true)
-  check("nonce", verify_grant(grant, "wrong", ent.application_id, ent.key_id, vector.public_key, now), false)
-  check("app", verify_grant(grant, ent.nonce, "pub_other_app", ent.key_id, vector.public_key, now), false)
-  check("key", verify_grant(grant, ent.nonce, ent.application_id, "wrong-key", vector.public_key, now), false)
-  check("sig", verify_grant({ entitlement = ent, signature = vector.signature .. "AA" }, ent.nonce, ent.application_id, ent.key_id, vector.public_key, now), false)
-  check("expiry", verify_grant(grant, ent.nonce, ent.application_id, ent.key_id, vector.public_key, instant_ms(ent.expires_at)), false)
+  check("ok", verify_grant(grant, ent.nonce, ent.application_id, vector.public_key, now), true)
+  check("nonce", verify_grant(grant, "wrong", ent.application_id, vector.public_key, now), false)
+  check("app", verify_grant(grant, ent.nonce, "pub_other_app", vector.public_key, now), false)
+  check("sig", verify_grant({ entitlement = ent, signature = vector.signature .. "AA" }, ent.nonce, ent.application_id, vector.public_key, now), false)
+  check("expiry", verify_grant(grant, ent.nonce, ent.application_id, vector.public_key, instant_ms(ent.expires_at)), false)
   local tampered = new_copy(ent, "device_id", "other")
-  check("device", verify_grant({ entitlement = tampered, signature = vector.signature }, ent.nonce, ent.application_id, ent.key_id, vector.public_key, now), false)
+  check("device", verify_grant({ entitlement = tampered, signature = vector.signature }, ent.nonce, ent.application_id, vector.public_key, now), false)
   local revoked = new_copy(ent, "status", "revoked")
-  check("status", verify_grant({ entitlement = revoked, signature = vector.signature }, ent.nonce, ent.application_id, ent.key_id, vector.public_key, now), false)
+  check("status", verify_grant({ entitlement = revoked, signature = vector.signature }, ent.nonce, ent.application_id, vector.public_key, now), false)
 end
 io.write("Lua vectors passed\n")
