@@ -324,7 +324,7 @@ function request(mode, license_key, installation_id, api, app_id, public_key)
   response:close()
   os.remove(req)
   os.remove(resp)
-  if status ~= "200" and status ~= "201" then error(mode .. " failed (" .. status .. ")") end
+  if status ~= "200" and status ~= "201" then error(failure_message(raw, mode .. " failed (" .. status .. ")")) end
   local grant = parse_json(raw)
   if not verify_grant(grant, nonce, app_id, public_key, nil) then error("Invalid or expired signed entitlement") end
   return grant.entitlement or grant["entitlement"]
@@ -378,15 +378,66 @@ local function installation_id()
   error("Could not read the HWID")
 end
 
+function failure_message(raw, fallback)
+  local ok, payload = pcall(parse_json, raw or "")
+  local message = ok and payload and payload.error and payload.error.message or nil
+  if type(message) == "string" and message ~= "" then return message end
+  return fallback
+end
+
+local function heartbeat(license_key, installation_id, api, app_id)
+  local random = assert(io.open("/dev/urandom", "rb"))
+  local nonce_raw = random:read(24)
+  random:close()
+  local nonce = b64encode(nonce_raw):gsub("+", "-"):gsub("/", "_"):gsub("=", "")
+  local digest = io.popen(string.format("printf %%s %q | openssl dgst -sha256", "kernauth-device-v1:" .. installation_id), "r")
+  local fingerprint = digest:read("*a"):match("(%x+)%s*$")
+  digest:close()
+  if not fingerprint or #fingerprint ~= 64 then error("fingerprint failed") end
+  local body = encode_json(new_object({
+    { "protocol_version", 1 }, { "public_app_id", app_id }, { "client_version", "1.0.0" },
+    { "license_key", license_key }, { "fingerprint_version", 1 }, { "device_fingerprint", fingerprint },
+    { "installation_id", installation_id }, { "nonce", nonce },
+  }))
+  local req = os.tmpname()
+  local resp = os.tmpname()
+  local handle = assert(io.open(req, "wb"))
+  handle:write(body)
+  handle:close()
+  local code_text = io.popen(string.format(
+    "curl -sS -o %q -w %%{http_code} -X POST -H %q --data-binary @%q %q",
+    resp, "content-type: application/json", req, api .. "/v1/client/heartbeat"), "r")
+  local status = code_text:read("*a")
+  code_text:close()
+  local response = assert(io.open(resp, "rb"))
+  local raw = response:read("*a")
+  response:close()
+  os.remove(req)
+  os.remove(resp)
+  if status ~= "200" and status ~= "201" then error(failure_message(raw, "heartbeat failed (" .. status .. ")")) end
+  local payload = parse_json(raw)
+  if not payload or payload.ok ~= true then error("heartbeat failed") end
+end
+
 if arg and arg[0] then
   local invoked = arg[0]:gsub("\\", "/")
   if invoked == "kernauth.lua" or invoked:match("/kernauth%.lua$") then
   local app = KernAuth.new(API, APP_ID, PUBLIC_KEY)
-  if not app:validate(license_key(), installation_id()) then error(app.message) end
+  local key = license_key()
+  local hwid = installation_id()
+  if not app:validate(key, hwid) then error(app.message) end
   local ent = app.entitlement
   io.write("Status: ", tostring(ent.status), "\n")
   io.write("Features: ", ent.features, "\n")
   io.write("License: ", tostring(ent.license_id), "\n")
   io.write("Check expires: ", tostring(ent.expires_at), "\n")
+  while true do
+    os.execute("sleep 60")
+    local ok, err = pcall(heartbeat, key, hwid, app.api, app.app_id)
+    if not ok then
+      io.write(tostring(err), "\n")
+      os.exit(1)
+    end
+  end
   end
 end
