@@ -1,5 +1,5 @@
--- Lua's standard library has no HTTPS or Ed25519. This file uses curl for the
--- request and the openssl command for the signature check.
+-- Lua's standard library has no HTTPS client and no signature check. This file
+-- uses curl for the request and the openssl command for the signature.
 
 local API = "https://api.kernauth.com"
 local APP_ID = "__PUBLIC_APP_ID__"
@@ -18,7 +18,7 @@ KernAuth.__index = KernAuth
 function KernAuth.new(api, app_id, key_id, public_key)
   return setmetatable({
     api = api or API, app_id = app_id or APP_ID, key_id = key_id or KEY_ID,
-    public_key = public_key or PUBLIC_KEY, success = false, message = "",
+    public_key = public_key or PUBLIC_KEY, success = false, message = "", entitlement = nil,
   }, KernAuth)
 end
 
@@ -27,14 +27,16 @@ function KernAuth:validate(license_key, installation_id)
 end
 
 function KernAuth:call(mode, license_key, installation_id, ok_message)
-  local ok, err = pcall(request, mode, license_key, installation_id, self.api, self.app_id, self.key_id, self.public_key)
+  local ok, result = pcall(request, mode, license_key, installation_id, self.api, self.app_id, self.key_id, self.public_key)
   if not ok then
     self.success = false
-    self.message = tostring(err)
+    self.message = tostring(result)
+    self.entitlement = nil
     return false
   end
   self.success = true
   self.message = ok_message
+  self.entitlement = result
   return true
 end
 
@@ -324,16 +326,58 @@ function request(mode, license_key, installation_id, api, app_id, key_id, public
   if status ~= "200" and status ~= "201" then error(mode .. " failed (" .. status .. ")") end
   local grant = parse_json(raw)
   if not verify_grant(grant, nonce, app_id, key_id, public_key, nil) then error("Invalid or expired signed entitlement") end
+  return grant.entitlement or grant["entitlement"]
+end
+
+local function trim(value)
+  return (value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function stdin_tty()
+  local handle = io.popen("test -t 0 && printf 1 || printf 0", "r")
+  if not handle then return false end
+  local text = handle:read("*a")
+  handle:close()
+  return text == "1"
+end
+
+local function license_key()
+  local env = trim(os.getenv("KERN_LICENSE_KEY"))
+  if env ~= "" then return env end
+  if stdin_tty() then io.write("Enter license: ") io.flush() end
+  return trim(io.read("*l"))
+end
+
+local function installation_id()
+  local env = trim(os.getenv("KERN_INSTALLATION_ID"))
+  if env ~= "" then return env end
+  local existing = io.open("kernauth-install", "r")
+  if existing then
+    local saved = trim(existing:read("*a"))
+    existing:close()
+    if saved ~= "" then return saved end
+  end
+  local random = assert(io.open("/dev/urandom", "rb"))
+  local bytes = random:read(16)
+  random:close()
+  local saved = (bytes:gsub(".", function(c) return string.format("%02x", c:byte()) end))
+  local out = assert(io.open("kernauth-install", "w"))
+  out:write(saved, "\n")
+  out:close()
+  return saved
 end
 
 if arg and arg[0] then
   local invoked = arg[0]:gsub("\\", "/")
   if invoked == "kernauth.lua" or invoked:match("/kernauth%.lua$") then
-  local license = os.getenv("KERN_LICENSE_KEY")
-  local installation = os.getenv("KERN_INSTALLATION_ID")
-  if not license or not installation then error("Set KERN_LICENSE_KEY and KERN_INSTALLATION_ID") end
   local app = KernAuth.new(API, APP_ID, KEY_ID, PUBLIC_KEY)
-  if not app:validate(license, installation) then error(app.message) end
-  io.write(app.message, "\n")
+  if not app:validate(license_key(), installation_id()) then error(app.message) end
+  local ent = app.entitlement
+  local features = ent.features
+  if type(features) == "string" then features = parse_json(features) end
+  io.write("Status: ", tostring(ent.status), "\n")
+  io.write("Features: ", encode_json(features), "\n")
+  io.write("License: ", tostring(ent.license_id), "\n")
+  io.write("Check expires: ", tostring(ent.expires_at), "\n")
   end
 end
