@@ -351,23 +351,33 @@ local function license_key()
   return trim(io.read("*l"))
 end
 
+local function machine_hwid()
+  if package.config:sub(1, 1) == "\\" then
+    local handle = io.popen([[powershell.exe -NoProfile -Command "[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value"]], "r")
+    if not handle then return "" end
+    local text = handle:read("*a") or ""
+    handle:close()
+    return text
+  end
+  local existing = io.open("/etc/machine-id", "r")
+  if existing then
+    local text = existing:read("*a")
+    existing:close()
+    return text
+  end
+  local handle = io.popen("ioreg -rd1 -c IOPlatformExpertDevice", "r")
+  if not handle then return "" end
+  local text = handle:read("*a") or ""
+  handle:close()
+  return text:match('"IOPlatformUUID" = "([^"]+)"') or ""
+end
+
 local function installation_id()
   local env = trim(os.getenv("KERN_INSTALLATION_ID"))
   if env ~= "" then return env end
-  local existing = io.open("kernauth-install", "r")
-  if existing then
-    local saved = trim(existing:read("*a"))
-    existing:close()
-    if saved ~= "" then return saved end
-  end
-  local random = assert(io.open("/dev/urandom", "rb"))
-  local bytes = random:read(16)
-  random:close()
-  local saved = (bytes:gsub(".", function(c) return string.format("%02x", c:byte()) end))
-  local out = assert(io.open("kernauth-install", "w"))
-  out:write(saved, "\n")
-  out:close()
-  return saved
+  local hwid = trim(machine_hwid())
+  if hwid:match("^[A-Za-z0-9_%-][%w_%-]*$") and #hwid >= 8 and #hwid <= 64 then return hwid end
+  error("Could not read the HWID")
 end
 
 if arg and arg[0] then
